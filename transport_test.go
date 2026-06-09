@@ -211,13 +211,15 @@ func TestProvisionDefaultsAndProvider(t *testing.T) {
 	}
 }
 
-func TestProvisionRequiresRegion(t *testing.T) {
+// Region is optional now (derived from the upstream host at sign time), so
+// Provision must succeed without it.
+func TestProvisionWithoutRegionSucceeds(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 
 	tr := &S3Transport{} // no region
-	if err := tr.Provision(ctx); err == nil {
-		t.Fatal("expected error when region is unset")
+	if err := tr.Provision(ctx); err != nil {
+		t.Fatalf("Provision without region should succeed: %v", err)
 	}
 }
 
@@ -308,6 +310,54 @@ func TestSignOverridesHostWithUpstream(t *testing.T) {
 }
 
 var fixedTime = time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+
+func TestRegionFromHost(t *testing.T) {
+	cases := []struct{ host, want string }{
+		{"bucket.s3.ap-northeast-2.amazonaws.com", "ap-northeast-2"},
+		{"bucket.s3.ap-northeast-2.amazonaws.com:443", "ap-northeast-2"},
+		{"bucket.s3.us-east-1.amazonaws.com", "us-east-1"},
+		{"bucket.s3.amazonaws.com", "us-east-1"},    // legacy global endpoint
+		{"s3.eu-west-1.amazonaws.com", "eu-west-1"}, // path-style
+		{"minio.internal:9000", ""},                 // custom endpoint, not derivable
+		{"example.com", ""},
+	}
+	for _, c := range cases {
+		if got := regionFromHost(c.host); got != c.want {
+			t.Errorf("regionFromHost(%q) = %q, want %q", c.host, got, c.want)
+		}
+	}
+}
+
+// TestSignDerivesRegionFromHost: with no explicit Region, the signing region
+// comes from the upstream host.
+func TestSignDerivesRegionFromHost(t *testing.T) {
+	tr := &S3Transport{
+		Service: "s3",
+		creds:   credentials.NewStaticCredentialsProvider("AKIDEXAMPLE", "SECRETKEY", ""),
+		signer:  v4.NewSigner(),
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://bucket.s3.eu-west-1.amazonaws.com/foo.js", nil)
+	if err := tr.sign(req); err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if auth := req.Header.Get("Authorization"); !strings.Contains(auth, "/eu-west-1/s3/aws4_request") {
+		t.Errorf("signing scope should use region derived from host: %q", auth)
+	}
+}
+
+// TestSignErrorsWhenRegionUnknown: a custom endpoint with no explicit region
+// must fail clearly rather than sign with an empty region.
+func TestSignErrorsWhenRegionUnknown(t *testing.T) {
+	tr := &S3Transport{
+		Service: "s3",
+		creds:   credentials.NewStaticCredentialsProvider("A", "S", ""),
+		signer:  v4.NewSigner(),
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://minio.internal:9000/foo.js", nil)
+	if err := tr.sign(req); err == nil {
+		t.Fatal("expected error when region cannot be derived from host")
+	}
+}
 
 var _ aws.CredentialsProvider = credentials.NewStaticCredentialsProvider("", "", "")
 var _ caddyfile.Unmarshaler = (*S3Transport)(nil)

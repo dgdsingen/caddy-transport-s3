@@ -1,0 +1,18 @@
+{
+	admin off
+	auto_https off
+}
+
+:8000 {
+	log
+	handle /health {
+		respond 200
+	}
+	@dir path_regexp ^(.*)/$
+	rewrite @dir {re.1}/index.html
+	reverse_proxy https://hp-platform-shared-docs-test.s3.ap-northeast-2.amazonaws.com {
+		transport s3 {
+			compression off
+		}
+	}
+}
