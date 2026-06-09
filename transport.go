@@ -206,11 +206,22 @@ func regionFromHost(host string) string {
 
 	labels := strings.Split(host, ".")
 	for i, l := range labels {
-		if l == "s3" {
-			if labels[i+1] == "amazonaws" {
-				return "us-east-1"
-			}
-			return labels[i+1]
+		if l != "s3" {
+			continue
+		}
+		if i+1 >= len(labels) {
+			return ""
+		}
+		next := labels[i+1]
+		switch {
+		case next == "amazonaws":
+			// "...s3.amazonaws.com" 레거시 글로벌 엔드포인트
+			return "us-east-1"
+		case next == "dualstack" && i+2 < len(labels):
+			// "...s3.dualstack.<region>.amazonaws.com"
+			return labels[i+2]
+		default:
+			return next
 		}
 	}
 	return ""
