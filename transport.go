@@ -34,6 +34,14 @@ const (
 	amzContentSHA256Header = "X-Amz-Content-Sha256"
 )
 
+// signing 시 제거할 불필요한 proxy 헤더
+var proxyHeaders = []string{
+	"Via",
+	"X-Forwarded-For",
+	"X-Forwarded-Proto",
+	"X-Forwarded-Host",
+}
+
 type S3Transport struct {
 	*reverseproxy.HTTPTransport
 
@@ -137,12 +145,20 @@ func (t *S3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func (t *S3Transport) sign(req *http.Request) error {
+	return t.signAt(req, time.Now())
+}
+
+func (t *S3Transport) signAt(req *http.Request, signingTime time.Time) error {
 	creds, err := t.creds.Retrieve(req.Context())
 	if err != nil {
 		return err
 	}
 
+	req.Host = req.URL.Host
+	for _, h := range proxyHeaders {
+		req.Header.Del(h)
+	}
 	req.Header.Set(amzContentSHA256Header, unsignedPayload)
 
-	return t.signer.SignHTTP(req.Context(), creds, req, unsignedPayload, t.Service, t.Region, time.Now())
+	return t.signer.SignHTTP(req.Context(), creds, req, unsignedPayload, t.Service, t.Region, signingTime)
 }

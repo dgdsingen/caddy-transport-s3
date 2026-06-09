@@ -54,6 +54,50 @@ func TestSignAddsSigV4Headers(t *testing.T) {
 	}
 }
 
+// signedHeaders extracts the SignedHeaders list from an Authorization header.
+func signedHeaders(auth string) []string {
+	_, rest, ok := strings.Cut(auth, "SignedHeaders=")
+	if !ok {
+		return nil
+	}
+	list, _, _ := strings.Cut(rest, ",")
+	return strings.Split(list, ";")
+}
+
+// TestSignExcludesProxyHeaders guards against the SignatureDoesNotMatch we hit
+// in practice: Caddy adds Via / X-Forwarded-* headers whose values change
+// across hops. They must be stripped before signing (and dropped from the
+// request) so the signed host/headers match what S3 receives.
+func TestSignExcludesProxyHeaders(t *testing.T) {
+	proxyHdrs := []string{"Via", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host"}
+
+	tr := newTestTransport("")
+	req, _ := http.NewRequest(http.MethodGet, "https://bucket.s3.ap-northeast-2.amazonaws.com/index.html", nil)
+	req.Header.Set("Via", "1.1 Caddy")
+	req.Header.Set("X-Forwarded-For", "::1")
+	req.Header.Set("X-Forwarded-Proto", "http")
+	req.Header.Set("X-Forwarded-Host", "example.com")
+
+	if err := tr.sign(req); err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	signed := signedHeaders(req.Header.Get("Authorization"))
+	for _, sh := range signed {
+		for _, ph := range proxyHdrs {
+			if strings.EqualFold(sh, ph) {
+				t.Errorf("SignedHeaders must not include proxy header %q; got %v", ph, signed)
+			}
+		}
+	}
+
+	for _, ph := range proxyHdrs {
+		if v := req.Header.Get(ph); v != "" {
+			t.Errorf("proxy header %q should be removed from the request, got %q", ph, v)
+		}
+	}
+}
+
 // Without a session token, the security-token header must be absent.
 func TestSignOmitsSecurityTokenWhenStatic(t *testing.T) {
 	tr := newTestTransport("")
@@ -225,6 +269,45 @@ func TestUnmarshalCaddyfileOnlyOurKeys(t *testing.T) {
 		t.Errorf("Region = %q, want us-east-1", tr.Region)
 	}
 }
+
+// TestSignOverridesHostWithUpstream ensures the signed host matches the S3
+// upstream even when reverse_proxy leaves the original client Host header in
+// place — otherwise SigV4 signs the wrong host and S3 returns 403.
+func TestSignOverridesHostWithUpstream(t *testing.T) {
+	const upstream = "bucket.s3.ap-northeast-2.amazonaws.com"
+
+	tr := newTestTransport("")
+	req, _ := http.NewRequest(http.MethodGet, "https://"+upstream+"/foo.js", nil)
+	req.Host = "example.com" // simulate the client-facing Host left by reverse_proxy
+
+	if err := tr.sign(req); err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	if req.Host != upstream {
+		t.Errorf("req.Host = %q, want upstream %q", req.Host, upstream)
+	}
+
+	// Re-sign a clean request (Host derived from URL) and confirm the
+	// Authorization matches, proving the override fed the upstream host into
+	// the signature rather than example.com.
+	clean := newTestTransport("")
+	cleanReq, _ := http.NewRequest(http.MethodGet, "https://"+upstream+"/foo.js", nil)
+	if err := clean.signAt(cleanReq, fixedTime); err != nil {
+		t.Fatalf("sign clean: %v", err)
+	}
+	tr2 := newTestTransport("")
+	dirtyReq, _ := http.NewRequest(http.MethodGet, "https://"+upstream+"/foo.js", nil)
+	dirtyReq.Host = "example.com"
+	if err := tr2.signAt(dirtyReq, fixedTime); err != nil {
+		t.Fatalf("sign dirty: %v", err)
+	}
+	if a, b := cleanReq.Header.Get("Authorization"), dirtyReq.Header.Get("Authorization"); a != b {
+		t.Errorf("signatures differ — host override not applied\n clean: %s\n dirty: %s", a, b)
+	}
+}
+
+var fixedTime = time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 
 var _ aws.CredentialsProvider = credentials.NewStaticCredentialsProvider("", "", "")
 var _ caddyfile.Unmarshaler = (*S3Transport)(nil)
