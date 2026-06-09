@@ -1,3 +1,6 @@
+// 로컬에서 빌드시 GOPROXY, GOMODCACHE 영향을 피하기 위해 로컬 경로 명시
+// GOOS=linux GOARCH=arm64 xcaddy build --with github.com/dgdsingen/caddy-transport-s3=.
+//
 // caddys3는 reverse_proxy 요청을 AWS SigV4로 서명하는 transport를 제공한다.
 // 별도의 aws-sigv4-proxy sidecar 없이 직접 private s3 bucket에 직접 프록시할 수 있게 된다.
 package caddys3

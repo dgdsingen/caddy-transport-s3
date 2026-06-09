@@ -6,6 +6,7 @@
 :8000 {
 	log
 	handle /health {
+		log_skip
 		respond 200
 	}
 	@dir path_regexp ^(.*)/$
