@@ -355,6 +355,8 @@ func TestRegionFromHost(t *testing.T) {
 		{"s3.eu-west-1.amazonaws.com", "eu-west-1"},                            // path-style
 		{"bucket.s3.dualstack.ap-northeast-2.amazonaws.com", "ap-northeast-2"}, // dualstack (virtual-hosted)
 		{"s3.dualstack.us-west-2.amazonaws.com", "us-west-2"},                  // dualstack (path-style)
+		{"my.s3.bucket.s3.ap-northeast-2.amazonaws.com", "ap-northeast-2"},     // 버킷명에 점+s3 라벨 포함
+		{"s3.s3.ap-northeast-2.amazonaws.com", "ap-northeast-2"},               // 버킷명이 "s3"
 		{"bucket.s3-accelerate.amazonaws.com", ""},                             // 변형: region 추론 불가 → 명시 요구
 		{"bucket.s3-fips.us-east-1.amazonaws.com", ""},                         // 변형: region 추론 불가 → 명시 요구
 		{"minio.internal:9000", ""},                                            // custom endpoint, not derivable

@@ -204,9 +204,11 @@ func regionFromHost(host string) string {
 		return ""
 	}
 
+	// 뒤에서부터 "s3" 라벨을 찾는다. S3 서비스 라벨은 항상 amazonaws.com (뒤쪽)에
+	// 고정되고 버킷명은 앞쪽이므로, 버킷명에 "s3" 라벨이 있어도 오인하지 않는다.
 	labels := strings.Split(host, ".")
-	for i, l := range labels {
-		if l != "s3" {
+	for i := len(labels) - 1; i >= 0; i-- {
+		if labels[i] != "s3" {
 			continue
 		}
 		if i+1 >= len(labels) {
