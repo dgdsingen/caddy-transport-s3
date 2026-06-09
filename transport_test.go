@@ -311,6 +311,41 @@ func TestSignOverridesHostWithUpstream(t *testing.T) {
 
 var fixedTime = time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 
+// TestSignIsIdempotentOnRetry: reverse_proxy가 연결 실패 등으로 RoundTrip을
+// 재호출하면 이미 서명된 req에 signAt이 다시 실행된다. 같은 시각으로 두 번
+// 서명했을 때 동일한 Authorization이 나와야 한다(1차 서명의 잔재 헤더가
+// SignedHeaders를 오염시키거나 X-Amz-Date가 누적되지 않아야 함).
+func TestSignIsIdempotentOnRetry(t *testing.T) {
+	tr := newTestTransport("")
+	req, _ := http.NewRequest(http.MethodGet, "https://bucket.s3.ap-northeast-2.amazonaws.com/foo.js", nil)
+
+	if err := tr.signAt(req, fixedTime); err != nil {
+		t.Fatalf("1차 sign: %v", err)
+	}
+	firstAuth := req.Header.Get("Authorization")
+	firstSigned := signedHeaders(firstAuth)
+
+	// 재시도처럼 같은 req에 재서명
+	if err := tr.signAt(req, fixedTime); err != nil {
+		t.Fatalf("2차 sign: %v", err)
+	}
+	secondAuth := req.Header.Get("Authorization")
+
+	if firstAuth != secondAuth {
+		t.Errorf("재서명이 멱등이 아님\n 1차: %s\n 2차: %s", firstAuth, secondAuth)
+	}
+	// X-Amz-Date가 중복 누적되지 않아야 한다.
+	if got := req.Header.Values("X-Amz-Date"); len(got) != 1 {
+		t.Errorf("X-Amz-Date 헤더 개수 = %d, want 1 (%v)", len(got), got)
+	}
+	// SignedHeaders에 Authorization이 끼어들면 안 된다.
+	for _, sh := range firstSigned {
+		if strings.EqualFold(sh, "authorization") {
+			t.Errorf("SignedHeaders에 authorization 포함: %v", firstSigned)
+		}
+	}
+}
+
 func TestRegionFromHost(t *testing.T) {
 	cases := []struct{ host, want string }{
 		{"bucket.s3.ap-northeast-2.amazonaws.com", "ap-northeast-2"},
