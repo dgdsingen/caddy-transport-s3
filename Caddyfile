@@ -11,7 +11,7 @@
 	}
 	@dir path_regexp ^(.*)/$
 	rewrite @dir {re.1}/index.html
-	reverse_proxy https://hp-platform-shared-docs-test.s3.ap-northeast-2.amazonaws.com {
+	reverse_proxy https://{$S3_BUKET}.s3.{$AWS_REGION}.amazonaws.com {
 		transport s3 {
 			compression off
 		}
