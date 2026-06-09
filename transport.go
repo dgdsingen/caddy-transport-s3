@@ -173,9 +173,7 @@ func (t *S3Transport) signAt(req *http.Request, signingTime time.Time) error {
 		return err
 	}
 
-	// reverse_proxy는 클라이언트가 보낸 Host 헤더를 유지하므로
-	// S3가 실제로 수신하는 host로 서명하도록 upstream host에 맞춘다
-	// (그러지 않으면 서명이 잘못된 host를 덮어 S3가 403을 반환한다).
+	// client host 대신 upstream host로 변경 (s3가 수신하는 host와 서명값을 맞춤)
 	req.Host = req.URL.Host
 	for _, h := range proxyHeaders {
 		req.Header.Del(h)
