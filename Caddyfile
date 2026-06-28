@@ -3,17 +3,36 @@
 	auto_https off
 }
 
-:8000 {
-	log
+:80 {
+	log {
+		output stdout
+		format json {
+			time_format rfc3339
+			time_local
+		}
+	}
+
 	handle /health {
 		log_skip
 		respond 200
 	}
-	@dir path_regexp ^(.*)/$
-	rewrite @dir {re.1}/index.html
+
+	@dir path */
+	rewrite @dir {path}index.html
+
 	reverse_proxy https://{$S3_BUCKET}.s3.{$AWS_REGION}.amazonaws.com {
 		transport s3 {
 			compression off
+		}
+
+		@404 status 404
+		handle_response @404 {
+			@redir not {
+				path */
+				path */index.html
+			}
+			redir @redir {path}/
+			copy_response
 		}
 	}
 }
