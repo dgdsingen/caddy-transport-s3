@@ -12,6 +12,8 @@
 		}
 	}
 
+	encode zstd gzip
+
 	handle /health {
 		log_skip
 		respond 200
